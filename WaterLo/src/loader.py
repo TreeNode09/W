@@ -125,7 +125,7 @@ def loader_with_padding(path, img_size: int, batch_size=1, split='test', shuffle
             transforms=transforms_list,
         )
 
-    loader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, drop_last=drop_last, num_workers=1, shuffle=shuffle)
+    loader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, drop_last=drop_last, num_workers=0, shuffle=shuffle)
     return loader
 
 

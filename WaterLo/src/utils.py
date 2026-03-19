@@ -24,12 +24,14 @@ class Models:
         self.B.eval()
 
     def save(self, path=""):
-        torch.save(self.G.state_dict(), os.path.join(path, "G.pt"))
-        torch.save(self.B.state_dict(), os.path.join(path, "B.pt"))
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        torch.save(self.G.state_dict(), os.path.join(path, "G.pt", map_location=torch.device(device)))
+        torch.save(self.B.state_dict(), os.path.join(path, "B.pt", map_location=torch.device(device)))
 
     def load(self, path=""):
-        self.G.load_state_dict(torch.load(os.path.join(path, "G.pt")))
-        self.B.load_state_dict(torch.load(os.path.join(path, "B.pt")))
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.G.load_state_dict(torch.load(os.path.join(path, "G.pt"), map_location=torch.device(device)))
+        self.B.load_state_dict(torch.load(os.path.join(path, "B.pt"), map_location=torch.device(device)))
 
 
 @dataclass

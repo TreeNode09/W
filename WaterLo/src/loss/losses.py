@@ -9,13 +9,13 @@ class GeneratorLoss(nn.Module):
         self.device = device
         self.alpha = alpha
         self.l1 = nn.L1Loss()
-        self.ssim = MS_SSIM()
+        self.ssim = MS_SSIM(data_range=1.0)
         self.mse = nn.MSELoss()
 
         if loss == "mse":
             self.loss = lambda watermark, img : self.mse(self.alpha * watermark + img, img)
         elif loss == "ssim":
-            self.loss = lambda watermark, img : 0.16 * self.l1(self.alpha * watermark + img, img) + 0.84 * self.ssim(self.alpha * watermark + img, img)
+            self.loss = lambda watermark, img : 0.16 * self.l1(self.alpha * watermark + img, img) + 0.84 * (1.0 - self.ssim(self.alpha * watermark + img, img))
         else:
             assert(False)
 

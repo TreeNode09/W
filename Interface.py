@@ -206,7 +206,8 @@ def _prepareWaterLo(in_path: str) -> tuple[Any, torch.device]:
     return models, device
 
 
-def applyWaterLo(images: list[Any], in_path: str, alpha: float = 0.005, out_path: str | None = None) -> list[Any]:
+def applyWaterLo(images: list[Any], in_path: str, alpha: float = 0.005,
+    out_path: str | None = None, batch_size: int = 8,) -> list[Any]:
     """Apply WaterLo invisible watermark to RGB images.
     Save watermarked images if `out_path` is given.
 
@@ -225,26 +226,35 @@ def applyWaterLo(images: list[Any], in_path: str, alpha: float = 0.005, out_path
     from WaterLo.src.loader import padding
 
     if not images: return []
+    if batch_size <= 0: raise ValueError(f"batch_size={batch_size} is not positive")
 
     models, device = _prepareWaterLo(os.path.join(in_path, "models"))
     models.eval()
-
-    tfm = Compose([ToTensor(), Lambda(lambda x: padding(x, size=512))])
-    batch = torch.stack([tfm(im.convert("RGB")) for im in images], dim=0)
-    size = ([im.size[0] for im in images], [im.size[1] for im in images])
-
-    with torch.no_grad(): croped = forward_watermark(models, batch, size, device, alpha)
 
     to_pil = ToPILImage()
     out_images: list[Any] = []
 
     if out_path is not None: os.makedirs(out_path, exist_ok=True)
 
-    for i, t in enumerate(croped):
+    tfm = Compose([ToTensor(), Lambda(lambda x: padding(x, size=512))])
 
-        out_image = to_pil(t.cpu())
-        out_images.append(out_image)
+    with torch.no_grad():
 
-        if out_path is not None: out_image.save(os.path.join(out_path, f"{i}.png"))
+        for start in range(0, len(images), batch_size):
+
+            end = min(start + batch_size, len(images))
+            chunk = images[start:end]
+
+            batch = torch.stack([tfm(im.convert("RGB")) for im in chunk], dim=0)
+            size = ([im.size[0] for im in chunk], [im.size[1] for im in chunk])
+            croped = forward_watermark(models, batch, size, device, alpha)
+
+            for i, t in enumerate(croped):
+
+                global_i = start + i
+                out_image = to_pil(t.cpu())
+                out_images.append(out_image)
+
+                if out_path is not None: out_image.save(os.path.join(out_path, f"{global_i}.png"))
 
     return out_images

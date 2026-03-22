@@ -85,10 +85,12 @@ def _preparePRC(out_path: str, model_id: str, *, allow_download: bool = False) -
         pipe = InversableStableDiffusionPipeline.from_pretrained(model_id, scheduler=scheduler, torch_dtype=torch.float32,
             cache_dir=models_dir, local_files_only=False)
 
+    pipe.set_progress_bar_config(disable=True)
+
     return pipe.to(device)
 
 
-def _getPrompts(dataset_id: str, num: int, out_path: str | None = None) -> list[str]:
+def getPrompts(dataset_id: str, num: int, out_path: str | None = None) -> list[str]:
     """Fetch `num` prompts from a HuggingFace dataset.
     Save fetched prompts if `out_path` is given.
 
@@ -168,7 +170,6 @@ def applyPRC(in_path: str, key_id: str, model_id: str, prompts: list[str], out_p
     # Must use a local model
     model_cache_dir = os.path.join(in_path, "models")
     pipe = _preparePRC(model_cache_dir, model_id, allow_download=False)
-    pipe.set_progress_bar_config(disable=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     if out_path is not None: os.makedirs(out_path, exist_ok=True)
@@ -189,6 +190,50 @@ def applyPRC(in_path: str, key_id: str, model_id: str, prompts: list[str], out_p
         if out_path is not None: image.save(os.path.join(out_path, f"{i}.png"))
 
     return images
+
+
+def decodePRC(in_path: str, key_id: str, model_id: str, images: list[Any], *,
+    inf_steps: int = 50, decoder_inv_steps: int = 20) -> list[tuple[bool, bool, bool]]:
+    """Detect / decode PRC watermark on a list of images.
+
+    Reduce `decoder_inv_steps` to speed up processing.
+
+    ## File:
+    - load key from `{in_path}/keys/{key_id}.pkl`
+    - load model from `{in_path}/models/[model_name]`, where `model_name` matches `model_id`
+
+    ## Return:
+    - tuples of `combined`, `decode` and `detect`
+    """
+
+    from PRC.src.prc import Detect, Decode
+    import PRC.src.pseudogaussians as prc_gaussians
+    from PRC.inversion import exact_inversion
+
+    if not images: return []
+
+    key_file = os.path.join(in_path, "keys", f"{key_id}.pkl")
+    if not os.path.exists(key_file): raise FileNotFoundError(f"Key not found: {key_file}")
+    with open(key_file, "rb") as f: _, decoding_key = pickle.load(f)
+
+    model_cache_dir = os.path.join(in_path, "models")
+    pipe = _preparePRC(model_cache_dir, model_id, allow_download=False)
+
+    results: list[tuple[bool, bool, bool]] = []
+    for img in images:
+
+        reversed_latents = exact_inversion(img, prompt="", test_num_inference_steps=inf_steps, inv_order=0, pipe=pipe,
+            decoder_inv_steps=decoder_inv_steps)
+
+        reversed_prc = prc_gaussians.recover_posteriors(reversed_latents.to(torch.float64).flatten().cpu()).flatten().cpu()
+
+        detect = Detect(decoding_key, reversed_prc)
+        decode = Decode(decoding_key, reversed_prc) is not None
+        combined = detect or decode
+
+        results.append((combined, detect, decode))
+
+    return results
 
 
 def _prepareWaterLo(in_path: str) -> tuple[Any, torch.device]:

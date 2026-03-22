@@ -417,18 +417,23 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
         else:
             raise NotImplementedError
 
-    def decoder_inv(self, x):
+    def decoder_inv(self, x, num_steps: int = 20):
         """
         decoder_inv calculates latents z of the image x by solving optimization problem ||E(x)-z||,
         not by directly encoding with VAE encoder. "Decoder inversion"
 
         INPUT
         x : image data (1, 3, 512, 512)
+        num_steps : number of Adam iterations (default 100; lower = faster, less accurate)
+
         OUTPUT
         z : modified latent data (1, 4, 64, 64)
 
         Goal : minimize norm(e(x)-z)
         """
+        if num_steps < 1:
+            raise ValueError("decoder_inv num_steps must be >= 1")
+
         input = x.clone().float()
 
         z = self.get_image_latents(x).clone().float()
@@ -436,9 +441,14 @@ class InversableStableDiffusionPipeline(ModifiedStableDiffusionPipeline):
 
         loss_function = torch.nn.MSELoss(reduction='sum')
         optimizer = torch.optim.Adam([z], lr=0.1)
-        lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
+        num_warmup_steps = min(10, max(0, num_steps // 10))
+        if num_warmup_steps >= num_steps:
+            num_warmup_steps = max(0, num_steps - 1)
+        lr_scheduler = get_cosine_schedule_with_warmup(
+            optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_steps
+        )
 
-        for i in self.progress_bar(range(100)):
+        for i in self.progress_bar(range(num_steps)):
             x_pred = self.decode_image_for_gradient_float(z)
 
             loss = loss_function(x_pred, input)

@@ -101,6 +101,7 @@ def exact_inversion(
         test_num_inference_steps=50,
         inv_order=1,
         decoder_inv=True,
+        decoder_inv_steps=20,
         model_id='stabilityai/stable-diffusion-2-1-base',
         pipe=None,
 ):
@@ -133,7 +134,7 @@ def exact_inversion(
     # image to latent
     image = transform_img(image).unsqueeze(0).to(text_embeddings.dtype).to(device)
     if decoder_inv:
-        image_latents = pipe.decoder_inv(image)
+        image_latents = pipe.decoder_inv(image, num_steps=decoder_inv_steps)
     else:
         image_latents = pipe.get_image_latents(image, sample=False)
 

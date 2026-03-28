@@ -1,2 +1,6 @@
 -r PRC/requirements.txt
 -r WaterLo/requirements.txt
+
+flask
+flask-cors
+flask_socketio

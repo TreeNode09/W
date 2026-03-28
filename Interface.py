@@ -4,6 +4,7 @@ import numpy as np
 import os
 import json
 import random
+import secrets
 import shutil
 import torch
 import pickle
@@ -15,21 +16,15 @@ from torchvision.transforms import Compose, ToTensor, Lambda, ToPILImage, Resize
 from torch.nn.functional import interpolate
 
 
-def _generateKeyID(user_id: str):    #PENDING
-
-    return user_id
-
-
-def generateKey(out_path: str, user_id: str):
-    """Generate a key to apply and detect watermarks, save the key in `out_path`.
-    Only called if the current user doesn't have a key.
+def generateKey(out_path: str) -> str:
+    """Generate a PRC key pair and save under ``out_path``.
 
     ## File:
     - create `{out_path}/keys` if not found
-    - save key to `{out_path}/keys/{key_path}.pkl`
+    - save key to `{out_path}/keys/{key_id}.pkl`
 
     ## Return:
-    - `key_id`: ID of the generated key
+    - ``key_id``: cryptographically random hex string
     """
 
     from PRC.src.prc import KeyGen
@@ -37,11 +32,15 @@ def generateKey(out_path: str, user_id: str):
     N = 4 * 64 * 64  # the length of a PRC codeword
     encoding_key, decoding_key = KeyGen(N)
 
-    key_id = _generateKeyID(user_id)
     keys_dir = os.path.join(out_path, "keys")
     os.makedirs(keys_dir, exist_ok=True)
 
-    key_path = os.path.join(keys_dir, f"{key_id}.pkl")
+    while True:
+
+        key_id = secrets.token_hex(16)
+        key_path = os.path.join(keys_dir, f"{key_id}.pkl")
+        if not os.path.exists(key_path): break
+
     with open(key_path, 'wb') as f: pickle.dump((encoding_key, decoding_key), f)
 
     with open(key_path, 'rb') as f: extracted, _ = pickle.load(f)
@@ -423,10 +422,10 @@ def applyWaterLo(images: list[Any], in_path: str, alpha: float = 0.005,
 
 
 def detectWaterLo(images: list[Any], in_path: str, compression: int = 101,
-    out_path: str | None = None, batch_size: int = 8,) -> list[Any]:
+    out_path: str | None = None, batch_size: int = 8,) -> tuple[list[Any], list[np.ndarray]]:
     """Detect WaterLo watermark maps from RGB images.
     Save visualized results if `out_path` is given.
-    
+
     `compression` > 100 means no compression.
 
     ## File:
@@ -437,7 +436,7 @@ def detectWaterLo(images: list[Any], in_path: str, compression: int = 101,
         - save maps to `{out_path}/{i}.png`
 
     ## Return:
-    - list of watermark-map `PIL.Image`
+    - `(maps, preds)`: heatmaps and predicted values
 
     **Original Code:** `WaterLo/src/detect_watermark.py`
     """
@@ -445,7 +444,8 @@ def detectWaterLo(images: list[Any], in_path: str, compression: int = 101,
     from WaterLo.src.jpeg import add_jpeg_noise
     from WaterLo.src.utils import rgb_to_ycbcr
 
-    if not images: return []
+    if not images:
+        return [], []
     if batch_size <= 0: raise ValueError(f"batch_size={batch_size} is not positive")
 
     models, device = _prepareWaterLo(os.path.join(in_path, "models"))
@@ -453,7 +453,8 @@ def detectWaterLo(images: list[Any], in_path: str, compression: int = 101,
 
     tfm = Compose([Resize((512, 512)), ToTensor()])
     to_pil = ToPILImage()
-    results: list[Any] = []
+    maps: list[Any] = []
+    preds: list[np.ndarray] = []
 
     if out_path is not None: os.makedirs(out_path, exist_ok=True)
 
@@ -467,17 +468,19 @@ def detectWaterLo(images: list[Any], in_path: str, compression: int = 101,
             if compression <= 100: batch = add_jpeg_noise(batch, device, compression)
 
             bob_preds = models.B(batch)
-            pred = interpolate(bob_preds, size=batch.shape[2:], mode="nearest")
+            pred: torch.Tensor = interpolate(bob_preds, size=batch.shape[2:], mode="nearest")
 
             for i in range(batch.shape[0]):
+
+                preds.append(pred[i, 0].detach().float().cpu().numpy().copy())
 
                 img_map = rgb_to_ycbcr(batch[i].clone())
                 img_map[1] = pred[i, 0]
                 img_map[2] = 1 - pred[i, 0]
 
                 result = to_pil(img_map.detach().cpu().clamp(0, 1))
-                results.append(result)
+                maps.append(result)
 
                 if out_path is not None: result.save(os.path.join(out_path, f"{start + i}.png"))
 
-    return results
+    return maps, preds

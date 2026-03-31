@@ -1,8 +1,8 @@
 import torch
 from diffusers import DPMSolverMultistepScheduler
 
-from src.inverse_stable_diffusion import InversableStableDiffusionPipeline
-from src.optim_utils import set_random_seed, transform_img, get_dataset
+from PRC.src.inverse_stable_diffusion import InversableStableDiffusionPipeline
+from PRC.src.optim_utils import set_random_seed, transform_img, get_dataset
 
 
 def stable_diffusion_pipe(

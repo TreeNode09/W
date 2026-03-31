@@ -56,7 +56,7 @@ def _build_scheduler(solver_order: int = 1):
         num_train_timesteps=1000, prediction_type="epsilon", steps_offset=1, trained_betas=None, solver_order=solver_order)
 
 
-def _preparePRC(out_path: str, model_id: str, *, allow_download: bool = False) -> Any:
+def preparePRC(out_path: str, model_id: str, *, allow_download: bool = False) -> Any:
     """Get a Stable Diffusion pipeline of a HuggingFace model with `model_id`.
     Always try local cache first.
 
@@ -168,7 +168,7 @@ def applyPRC(in_path: str, key_id: str, model_id: str, prompts: list[str],
 
     # Must use a local model
     model_cache_dir = os.path.join(in_path, "models")
-    pipe = _preparePRC(model_cache_dir, model_id, allow_download=False)
+    pipe = preparePRC(model_cache_dir, model_id, allow_download=False)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     if watermark:
@@ -240,7 +240,7 @@ def decodePRC(in_path: str, key_id: str, model_id: str, images: list[Any], *,
     with open(key_file, "rb") as f: _, decoding_key = pickle.load(f)
 
     model_cache_dir = os.path.join(in_path, "models")
-    pipe = _preparePRC(model_cache_dir, model_id, allow_download=False)
+    pipe = preparePRC(model_cache_dir, model_id, allow_download=False)
 
     results: list[tuple[bool, bool, bool]] = []
     for i, img in enumerate(images):

@@ -1,7 +1,9 @@
 import base64
 import io
+import os
 import secrets
 import threading
+import time
 from typing import Any
 
 from PIL import Image
@@ -16,10 +18,30 @@ app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-BASE_DIR = r"D:\W\Data"
+BASE_DIR = r"D:\W-Back\Data"
 
 PROMPT_DATASET = "Gustavosta/Stable-Diffusion-Prompts"
 BATCH_SIZE = 8
+
+TESTING = True
+
+
+def _load_n_images_from_test(n: int) -> list[Any]:
+
+    d = os.path.join(BASE_DIR, "test")
+    paths: list[str] = []
+    if os.path.isdir(d):
+
+        exts = {".png", ".jpg", ".jpeg", ".webp"}
+        names = sorted(f for f in os.listdir(d) if os.path.splitext(f)[1].lower() in exts)
+        paths = [os.path.join(d, f) for f in names]
+
+    if not paths: raise ValueError("TESTING: no image files in Data/test (*.png, *.jpg, *.jpeg, *.webp)")
+
+    out: list[Any] = []
+    for i in range(n): out.append(Image.open(paths[i % len(paths)]).convert("RGB"))
+    
+    return out
 
 
 def _json_dict() -> dict[str, Any] | None:
@@ -141,6 +163,60 @@ def _run_decode_waterlo_job(job_id: str, sid: str, pil_images: list[Any]) -> Non
         except Exception as e: socketio.emit("decode_error", {"job_id": job_id, "error": str(e)}, to=sid)
 
 
+def _run_generate_job_test(job_id: str, sid: str, model_id: str, prompts: list[str], use_prc: bool, use_waterlo: bool,
+    alpha: float, key_id: str) -> None:
+
+    n = len(prompts)
+    total = max(1, n)
+
+    with app.app_context():
+
+        try:
+
+            if use_prc:
+
+                for current in range(1, total + 1):
+
+                    socketio.emit("generate_prc", {"job_id": job_id, "current": current, "total": total}, to=sid)
+                    if current < total: time.sleep(1.0)
+
+            if use_waterlo:
+
+                for current in range(1, total + 1):
+
+                    socketio.emit("generate_waterlo", {"job_id": job_id, "current": current, "total": total}, to=sid)
+                    if current < total: time.sleep(1.0)
+
+            images = _load_n_images_from_test(n)
+            b64_list = [_png_to_b64(im) for im in images]
+
+            socketio.emit("generate_done", {"job_id": job_id, "images": b64_list, "count": len(b64_list)}, to=sid)
+
+        except Exception as e: socketio.emit("generate_error", {"job_id": job_id, "error": str(e)}, to=sid)
+
+
+def _run_waterlo_images_job_test(job_id: str, sid: str, pil_images: list[Any], alpha: float) -> None:
+
+    n = len(pil_images)
+    total = max(1, n)
+
+    with app.app_context():
+
+        try:
+
+            for current in range(1, total + 1):
+
+                socketio.emit("generate_waterlo", {"job_id": job_id, "current": current, "total": total}, to=sid)
+                if current < total: time.sleep(1.0)
+
+            out = _load_n_images_from_test(n)
+            b64_list = [_png_to_b64(im) for im in out]
+
+            socketio.emit("generate_done", {"job_id": job_id, "images": b64_list, "count": len(b64_list)}, to=sid)
+
+        except Exception as e: socketio.emit("generate_error", {"job_id": job_id, "error": str(e)}, to=sid)
+
+
 @socketio.on("connect")
 def handle_socket_connect(): print(f"[Socket] client connected: sid={request.sid}")
 
@@ -172,7 +248,7 @@ def handle_prompts():
     """Get `num` promtps from the given prompt dataset.
     
     ## Query:
-    - `num`: positive `int`
+    - `num`: `int` in [1, 8]
     - (optional) `dataset_id`: non-empty `string`, default = 'Gustavosta/Stable-Diffusion-Prompts'
 
     ## Return:
@@ -184,7 +260,7 @@ def handle_prompts():
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "num": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "num": {"type": "string", "pattern": "^[1-8]$"},
             "dataset_id": {"type": "string", "minLength": 1}
         },
         "required": ["num"]
@@ -272,7 +348,8 @@ def handle_generate_by_prompts():
     sid = str(data["socket_id"]).strip()
     job_id = secrets.token_hex(16)
 
-    threading.Thread(target=_run_generate_job, daemon=True,
+    run = _run_generate_job_test if TESTING else _run_generate_job
+    threading.Thread(target=run, daemon=True,
         kwargs= {
             "job_id": job_id, "sid": sid, "model_id": model_id, "prompts": list(prompts),
             "use_prc": use_prc, "use_waterlo": use_waterlo, "alpha": alpha, "key_id": key_id
@@ -317,7 +394,8 @@ def handle_generate_by_images():
         if not (0.0 < alpha <= 1.0): return jsonify({"error": "`alpha` must be in (0, 1]"}), 400
 
     job_id = secrets.token_hex(16)
-    threading.Thread(target=_run_waterlo_images_job, daemon=True,
+    run = _run_waterlo_images_job_test if TESTING else _run_waterlo_images_job
+    threading.Thread(target=run, daemon=True,
         kwargs={
             "job_id": job_id, "sid": sid, "pil_images": loaded, "alpha": alpha
         }

@@ -120,7 +120,7 @@ def getPrompts(dataset_id: str, num: int, out_path: str | None = None) -> list[s
 
     else: raise ValueError("dataset is not dict-like")
 
-    random.seed(42)
+    # random.seed(42)
     indexes = random.sample(range(len(ds)), num)
     prompts = [ds[i][key] for i in indexes]
 

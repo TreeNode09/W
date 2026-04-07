@@ -61,8 +61,8 @@ def preparePRC(out_path: str, model_id: str, *, allow_download: bool = False) ->
     Always try local cache first.
 
     ## File:
-    - create folder `{out_path}/models` if not found
-    - save HuggingFace cache to folder `{out_path}/models/[model_name]`
+    - create folder `{out_path}` if not found
+    - save HuggingFace cache to folder `{out_path}/[model_name]`
 
     ## Return:
     - `pipe`: an SD pipeline with `model_id`
@@ -70,21 +70,20 @@ def preparePRC(out_path: str, model_id: str, *, allow_download: bool = False) ->
 
     from PRC.src.inverse_stable_diffusion import InversableStableDiffusionPipeline
 
-    models_dir = os.path.join(out_path, "models")
-    os.makedirs(models_dir, exist_ok=True)
+    os.makedirs(out_path, exist_ok=True)
 
     scheduler = _build_scheduler(solver_order=1)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     try: pipe = InversableStableDiffusionPipeline.from_pretrained(model_id, scheduler=scheduler, torch_dtype=torch.float32,
-            cache_dir=models_dir, local_files_only=True)
+            cache_dir=out_path, local_files_only=True)
 
     except Exception as e:
 
-        if not allow_download: raise FileNotFoundError(f"Model not found locally in {models_dir}: {model_id}") from e
+        if not allow_download: raise FileNotFoundError(f"Model not found locally in {out_path}: {model_id}") from e
 
         pipe = InversableStableDiffusionPipeline.from_pretrained(model_id, scheduler=scheduler, torch_dtype=torch.float32,
-            cache_dir=models_dir, local_files_only=False)
+            cache_dir=out_path, local_files_only=False)
 
     pipe.set_progress_bar_config(disable=True)
 

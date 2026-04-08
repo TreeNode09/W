@@ -8,10 +8,10 @@ import os
 
 from random import randint
 
-from loader import loader_with_padding
-from models import Generator, Bob
-from loss import GeneratorLoss, BobLoss
-from utils import Models, Losses, Optimizers
+from WaterLo.src.loader import loader_with_padding
+from WaterLo.src.models import Generator, Bob
+from WaterLo.src.loss import GeneratorLoss, BobLoss
+from WaterLo.src.utils import Models, Losses, Optimizers
 from random import seed
 
 from jpeg import add_jpeg_noise

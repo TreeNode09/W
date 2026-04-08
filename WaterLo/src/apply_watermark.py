@@ -4,9 +4,9 @@ import os
 import torch
 from tqdm import tqdm
 
-from loader import loader_with_padding
-from models import Generator, Bob
-from utils import Models, imsave, crop_padding
+from WaterLo.src.loader import loader_with_padding
+from WaterLo.src.models import Generator, Bob
+from WaterLo.src.utils import Models, imsave, crop_padding
 
 
 def forward_watermark(models, imgs: torch.Tensor, size, device, alpha: float):

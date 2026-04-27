@@ -30,7 +30,7 @@ def generateKey(out_path: str) -> str:
 
     from PRC.src.prc import KeyGen
 
-    N = 4 * 64 * 64  # the length of a PRC codeword
+    N = 4 * 64 * 64  # designated length by the SD 2.1 model
     encoding_key, decoding_key = KeyGen(N)
 
     keys_dir = os.path.join(out_path, "keys")
@@ -139,13 +139,23 @@ def _seed_everything(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
+def _int_to_bits(value: int, width: int) -> list[int]:
+
+    if value < 0: raise ValueError(f"message value must be non-negative, got {value}")
+    if value >= (1 << width): raise ValueError(f"message value {value} exceeds width={width} bits")
+
+    return [int(b) for b in format(value, f"0{width}b")]
+
+
 def applyPRC(in_path: str, key_id: str, model_id: str, prompts: list[str],
-    out_path: str | None = None, watermark: bool = True, on_progress: Callable[[int, int], None] | None = None) -> list[Any]:
+    out_path: str | None = None, watermark: bool = True, message_fn: Callable[[int], int] | None = None,
+    on_progress: Callable[[int, int], None] | None = None) -> list[Any]:
     """Apply PRC watermark by generating images from watermarked latents, or plain SD when `watermark` is False.
     Only called when key, model and prompts are ready (key is ignored when `watermark` is False).
     Save generated images if `out_path` is given.
 
-    `on_progress` is a callback: `(current: int, total: int) -> None`
+    `message_fn` maps image index to an integer payload, ignored when `watermark` is `False`.
+    `on_progress` is another callback: `(current: int, total: int) -> None`
 
     ## File:
     - if `watermark`: load key from `{in_path}/keys/{key_id}.pkl`
@@ -180,6 +190,12 @@ def applyPRC(in_path: str, key_id: str, model_id: str, prompts: list[str],
         if not os.path.exists(key_file): raise FileNotFoundError(f"Key not found: {key_file}")
         with open(key_file, "rb") as f: encoding_key, _ = pickle.load(f)
 
+        generator_matrix, _, test_bits, g, _ = encoding_key
+        _, k = generator_matrix.shape
+        max_message_bits = k - len(test_bits) - g
+        if max_message_bits <= 0: raise ValueError("encoding key cannot carry any message bits")
+        message_width = min(64, max_message_bits)
+
     if out_path is not None: os.makedirs(out_path, exist_ok=True)
 
     images = []
@@ -189,7 +205,14 @@ def applyPRC(in_path: str, key_id: str, model_id: str, prompts: list[str],
 
         if watermark:
 
-            prc_codeword = Encode(encoding_key)
+            message = None
+            if message_fn is not None:
+                message_value = message_fn(i)
+                if not isinstance(message_value, int):
+                    raise TypeError(f"message_fn({i}) must return int, got {type(message_value).__name__}")
+                message = _int_to_bits(message_value, message_width)
+
+            prc_codeword = Encode(encoding_key, message=message)
             init_latents = prc_gaussians.sample(prc_codeword).reshape(1, 4, 64, 64).to(device)
 
         else:
@@ -510,3 +533,5 @@ def detectWaterLo(images: list[Any], in_path: str, compression: int = 101,
                 if on_progress is not None: on_progress(start + i + 1, len(images))
 
     return maps, preds
+
+if __name__ == "__main__": print(generateKey(r"D:\W-Back\Data"))

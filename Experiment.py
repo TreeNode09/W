@@ -2,6 +2,7 @@ import os
 import random
 import json
 import time
+import io
 from PIL import Image
 
 from Interface import *
@@ -57,12 +58,26 @@ def generatePRCImages(key_id: str, *, prompts_path: str = PROMPTS_FILE) -> None:
     return
 
 
-def detectPRCImages(key_id: str, num_images: int, *, images_dir: str = PRC_IMG_DIR) -> dict[str, float]:
+def detectPRCImages(key_id: str, num_images: int, *, images_dir: str = PRC_IMG_DIR,
+    jpeg_quality: int | None = None) -> dict[str, float]:
 
     names = [n for n in os.listdir(images_dir) if os.path.splitext(n)[1].lower() in {".png", ".jpg", ".jpeg"}]
     names = sorted(names, key=lambda n: int(os.path.splitext(n)[0]))
     names = names[:num_images]
     images = [Image.open(os.path.join(images_dir, n)).convert("RGB") for n in names]
+
+    if jpeg_quality is not None:
+
+        images_jpeg: list[Image.Image] = []
+
+        for im in images:
+
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=jpeg_quality)
+            buf.seek(0)
+            images_jpeg.append(Image.open(buf).convert("RGB"))
+    
+        images = images_jpeg
 
     results = decodePRC(BASE_DIR, key_id, MODEL_ID, images, on_progress=make_progress_logger())
 
@@ -71,13 +86,15 @@ def detectPRCImages(key_id: str, num_images: int, *, images_dir: str = PRC_IMG_D
     msg_width = max(1, (len(results) - 1).bit_length())
     decode_hits = 0
     decode_valid = 0
+
     for i, (_, bits) in enumerate(results):
-        if bits is None:
-            continue
+
+        if bits is None: continue
+
         decode_valid += 1
         decoded_value = int(bits[:msg_width], 2)
-        if decoded_value == i:
-            decode_hits += 1
+
+        if decoded_value == i: decode_hits += 1
 
     decode_acc_all = decode_hits / len(results)
     decode_acc_valid = (decode_hits / decode_valid) if decode_valid > 0 else 0.0

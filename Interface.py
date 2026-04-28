@@ -139,22 +139,44 @@ def _seed_everything(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
-def _int_to_bits(value: int, width: int) -> list[int]:
+def _text_to_payload_bits(text: str, capacity_bits: int) -> list[int]:
 
-    if value < 0: raise ValueError(f"message value must be non-negative, got {value}")
-    if value >= (1 << width): raise ValueError(f"message value {value} exceeds width={width} bits")
+    if capacity_bits % 8 != 0: raise ValueError(f"capacity_bits={capacity_bits} is not byte-aligned")
 
-    return [int(b) for b in format(value, f"0{width}b")]
+    byte_capacity = capacity_bits // 8
+    if byte_capacity < 2: raise ValueError("message capacity is too small for length-prefixed text")
+
+    raw = text.encode("ascii")
+    max_chars = byte_capacity - 1
+    if len(raw) > max_chars: raise ValueError(f"message length={len(raw)} exceeds max={max_chars}")
+
+    payload = bytes([len(raw)]) + raw + bytes(max_chars - len(raw))
+    return [int(b) for byte in payload for b in format(byte, "08b")]
+
+
+def decodeBitsToText(bits: str | None) -> str | None:
+
+    if bits is None: return None
+    if len(bits) % 8 != 0: return None
+
+    data = bytes(int(bits[i:i + 8], 2) for i in range(0, len(bits), 8))
+    if not data: return None
+
+    n = data[0]
+    if n > len(data) - 1: return None
+
+    try: return data[1:1 + n].decode("ascii")
+    except UnicodeDecodeError: return None
 
 
 def applyPRC(in_path: str, key_id: str, model_id: str, prompts: list[str],
-    out_path: str | None = None, watermark: bool = True, message_fn: Callable[[int], int] | None = None,
+    out_path: str | None = None, watermark: bool = True, message_fn: Callable[[int], str] | None = None,
     on_progress: Callable[[int, int], None] | None = None) -> list[Any]:
     """Apply PRC watermark by generating images from watermarked latents, or plain SD when `watermark` is False.
     Only called when key, model and prompts are ready (key is ignored when `watermark` is False).
     Save generated images if `out_path` is given.
 
-    `message_fn` maps image index to an integer payload, ignored when `watermark` is `False`.
+    `message_fn` maps image index to an ASCII payload string, ignored when `watermark` is `False`.
     `on_progress` is another callback: `(current: int, total: int) -> None`
 
     ## File:
@@ -194,7 +216,6 @@ def applyPRC(in_path: str, key_id: str, model_id: str, prompts: list[str],
         _, k = generator_matrix.shape
         max_message_bits = k - len(test_bits) - g
         if max_message_bits <= 0: raise ValueError("encoding key cannot carry any message bits")
-        message_width = min(64, max_message_bits)
 
     if out_path is not None: os.makedirs(out_path, exist_ok=True)
 
@@ -207,10 +228,9 @@ def applyPRC(in_path: str, key_id: str, model_id: str, prompts: list[str],
 
             message = None
             if message_fn is not None:
-                message_value = message_fn(i)
-                if not isinstance(message_value, int):
-                    raise TypeError(f"message_fn({i}) must return int, got {type(message_value).__name__}")
-                message = _int_to_bits(message_value, message_width)
+
+                message_text = str(message_fn(i))
+                message = _text_to_payload_bits(message_text, max_message_bits)
 
             prc_codeword = Encode(encoding_key, message=message)
             init_latents = prc_gaussians.sample(prc_codeword).reshape(1, 4, 64, 64).to(device)
@@ -535,5 +555,3 @@ def detectWaterLo(images: list[Any], in_path: str, compression: int = 101,
                 if on_progress is not None: on_progress(start + i + 1, len(images))
 
     return maps, preds
-
-if __name__ == "__main__": print(generateKey(r"D:\W-Back\Data"))
